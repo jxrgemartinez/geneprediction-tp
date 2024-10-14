@@ -4,6 +4,7 @@ import os
 import csv
 import re
 from textwrap import fill
+from textwrap import fill
 from re import Pattern
 from pathlib import Path
 from typing import List, Union, Optional
@@ -101,6 +102,9 @@ def find_stop(stop_regex: Pattern, sequence: str, start: int) -> Union[int, None
     end_pos = stop_regex.finditer(sequence, start, len(sequence))
 
     if not (end_pos):
+        end_pos = stop_regex.finditer(sequence, start, len(sequence))
+
+    if not (end_pos):
         return None
 
     for match in end_pos:
@@ -122,9 +126,9 @@ def has_shine_dalgarno(shine_regex: Pattern, sequence: str, start: int, max_shin
     if start_search < 0:
         return False
 
-    sd_pos = shine_regex.search(sequence, start_search, start - 6)
-    
-    if not (sd_pos):
+    sd_pos = shine_regex.search(sequence, start - max_shine_dalgarno_distance, start - 6)
+
+    if not sd_pos:
         return False
     return True
 
@@ -146,23 +150,21 @@ def predict_genes(sequence: str, start_regex: Pattern, stop_regex: Pattern, shin
     current_pos = 0
     while len(sequence) - current_pos >= min_gap:
         current_pos = find_start(start_regex, sequence, current_pos, len(sequence))
-        
+
         if current_pos:
             stop = find_stop(stop_regex, sequence, current_pos)
-            
+
             if stop:
-                len_gene = stop - current_pos
-                
-                if len_gene >= min_gene_len:
-                    has_sd = has_shine_dalgarno(shine_regex, sequence, current_pos, max_shine_dalgarno_distance)
-                    
-                    if has_sd:
+                if stop - current_pos >= min_gene_len:
+                    if has_shine_dalgarno(shine_regex, sequence, current_pos, max_shine_dalgarno_distance):
                         found_genes.append([current_pos + 1, stop + 3])
-                        current_pos = stop + 3 + min_gap
-                        
+                        current_pos = stop + 3 + min_gap 
+ 
                     else:
                         current_pos += 1
+                        current_pos += 1
                 else:
+                    current_pos += 1
                     current_pos += 1
             else:
                 current_pos += 1
@@ -243,6 +245,11 @@ def main() -> None: # pragma: no cover
     probable_genes = predict_genes(sequence, start_regex, stop_regex, shine_regex, 
                   args.min_gene_len, args.max_shine_dalgarno_distance, args.min_gap)
 
+    sequence = read_fasta(args.genome_file)
+
+    probable_genes = predict_genes(sequence, start_regex, stop_regex, shine_regex, 
+                  args.min_gene_len, args.max_shine_dalgarno_distance, args.min_gap)
+
     # Don't forget to uncomment !!!
     # Call these function in the order that you want
     # We reverse and complement
@@ -260,7 +267,23 @@ def main() -> None: # pragma: no cover
         probable_genes_comp.append([new_start, new_end])
     probable_genes_comp.sort()
     
+
+    sequence_rc = reverse_complement(sequence)
+
+    probable_genes_reverse = predict_genes(sequence_rc, start_regex, stop_regex, shine_regex, 
+                  args.min_gene_len, args.max_shine_dalgarno_distance, args.min_gap)
+            
+    # Correction du sens 3' vers 5'
+    probable_genes_comp = []
+    for genes in probable_genes_reverse:
+        new_start = len(sequence_rc) - genes[1] + 1
+        new_end = len(sequence_rc) - genes[0] + 1
+        probable_genes_comp.append([new_start, new_end])
+    probable_genes_comp.sort()
+    
     # Call to output functions
+    write_genes_pos(args.predicted_genes_file, probable_genes + probable_genes_comp)
+    write_genes(args.fasta_file, sequence, probable_genes, sequence_rc, probable_genes + probable_genes_comp)
     write_genes_pos(args.predicted_genes_file, probable_genes + probable_genes_comp)
     write_genes(args.fasta_file, sequence, probable_genes, sequence_rc, probable_genes + probable_genes_comp)
 
